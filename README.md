@@ -3,7 +3,7 @@
 This EOS agent allows to request a prefix from a DHCPv6 server [RFC3633](https://tools.ietf.org/html/rfc3633) and assign it to an interface 
 to send out RAs to configure ipv6 addresses via SLAAC [RFC4862](https://datatracker.ietf.org/doc/html/rfc4862).
 
-We only support one /48 delegated prefix. This prefix can be assigned to any ipv6 enabled interface with an SLA id to create a /64 prefix for SLAAC.
+We only support one /59 delegated prefix. This prefix can be assigned to any ipv6 enabled interface with an SLA id to create a /64 prefix for SLAAC.
 We support changing the RA prefix interface configuration while the agent is running, e.g. adding additional interfaces or changing the SLA id.
 
 ## Usage
@@ -23,7 +23,7 @@ daemon DhcpPdEthernet1
 !
 ```
 The example above sends DHCP-PD requests on Ethernet1 and assigns a /64 prefix to Vlan1 with SLA id 0x1. 
-For example if the /48 prefix received from the DHCP server is `fc00::/48` the resulting RA prefix on Vlan1 will be `fc00:0:0:1::/64`.
+For example if the /59 prefix received from the DHCP server is `2001:db8:3c4d:ff40::/59` the resulting RA prefix on Vlan1 will be `2001:db8:3c4d:ff41::/64`.
 You can add additional arguments to the option. The format is:
 ```
 <slaId 16 bit hex> <arguments>

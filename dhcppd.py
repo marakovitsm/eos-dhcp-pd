@@ -11,7 +11,7 @@ import json
 import re
 from datetime import datetime
 
-prefix48Regex = re.compile("^([a-fA-F0-9]{1,4}:){1,3}:\\/48$")
+prefix59Regex = re.compile("^([a-fA-F0-9]{1,4}:){1,4}:\\/59$")
 dhclientTimeout = 60*5 # 5 minutes
 
 class dhclient:
@@ -31,7 +31,7 @@ class dhclient:
         self.callback = callback
         self.sockCommThread = threading.Thread(target=self.handleEvent)
         self.sockCommThread.start()
-        
+
         scriptFilePath = workingDir + '/dhclient-script.py'
         if not os.path.isfile(scriptFilePath):
             syslog.syslog("DHCP-PD Agent: dhclient script file missing ({})".format(scriptFilePath))
@@ -39,7 +39,7 @@ class dhclient:
         self.pidFilePath = workingDir + '/dhclient.pid'
         leaseFilePath = workingDir + '/dhclient.lease'
         # -6 = ipv6, -P = prefix delegation, -nw = do not wait for ip acquired
-        self.args = ['-6', '-P', '-nw', 
+        self.args = ['-6', '-P', '-nw',
                      '-e', 'SOCK_FILE={}'.format(sockFilePath),
                      '-sf', scriptFilePath,
                      '-pf', self.pidFilePath,
@@ -97,7 +97,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
         eossdk.AgentHandler.__init__(self, self.agentMgr)
         eossdk.IntfHandler.__init__(self, self.interfaceMgr)
         eossdk.TimeoutHandler.__init__(self, self.timeoutMgr)
-        
+
         self.dhcpInterface = dhcpInterface
         self.workingDir = workingDir
         self.raPrefixes = dict()
@@ -151,7 +151,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
             self.agentMgr.status_set('(A) DUID Server:', str(event['new_dhcp6_server_id']))
         if 'new_ip6_prefix' in event:
             delegatedPrefixStr = str(event['new_ip6_prefix'])
-            newDelegatedPrefix = dhcppd.parseDelegatedPrefix48(delegatedPrefixStr)
+            newDelegatedPrefix = dhcppd.parseDelegatedprefix59(delegatedPrefixStr)
             if newDelegatedPrefix is None:
                 self.tracer.trace1("Dhclient got invalid prefix {}".format(delegatedPrefixStr))
                 self.agentMgr.status_set('(B) Delegated Prefix:', 'invalid prefix {}'.format(delegatedPrefixStr))
@@ -164,7 +164,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
             lifePreferred = int(event['new_preferred_life'])
             self.agentMgr.status_set('(D) Lifetime Preferred [s]:', str(lifePreferred))
             self.agentMgr.status_set('(E) Lifetime Preferred Ends:', dhcppd.unixTimestampToString(lifeStarts + lifePreferred))
-            
+
             lifeValid = int(event['new_max_life'])
             self.agentMgr.status_set('(F) Lifetime Valid [s]:', str(lifeValid))
             self.agentMgr.status_set('(G) Lifetime Valid Ends:', dhcppd.unixTimestampToString(lifeStarts + lifeValid))
@@ -225,7 +225,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
                 self.delegatedPrefix = None
         else:
             self.tracer.trace1("Dhclient event {} unknown".format(reason))
-    
+
     # Should be called with lock held
     def removeAllPrefixRAs(self):
         for interface, (slaId, _) in self.raPrefixes.items():
@@ -238,9 +238,9 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
     # Should be called with lock held
     def addPrefixRA(self, interface, slaId, options):
         if options is None:
-            ndRaCommand = 'ipv6 nd prefix {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId))
+            ndRaCommand = 'ipv6 nd prefix {}'.format(dhcppd.prefix59to64(self.delegatedPrefix, slaId))
         else:
-            ndRaCommand = 'ipv6 nd prefix {} {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId), options)
+            ndRaCommand = 'ipv6 nd prefix {} {}'.format(dhcppd.prefix59to64(self.delegatedPrefix, slaId), options)
         self.raPrefixes[interface] = (slaId, options)
         interfaceCommand = 'interface {}'.format(interface)
         result = self.eapiMgr.run_config_cmds([interfaceCommand, ndRaCommand])
@@ -255,7 +255,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
     # Should be called with lock held
     def removePrefixRA(self, interface, slaId):
         del self.raPrefixes[interface]
-        ndRaCommand = 'no ipv6 nd prefix {}'.format(dhcppd.prefix48to64(self.delegatedPrefix, slaId))
+        ndRaCommand = 'no ipv6 nd prefix {}'.format(dhcppd.prefix59to64(self.delegatedPrefix, slaId))
         interfaceCommand = 'interface {}'.format(interface)
         result = self.eapiMgr.run_config_cmds([interfaceCommand, ndRaCommand])
         if result.success():
@@ -278,9 +278,9 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
             return (slaId, options)
 
     @staticmethod
-    def parseDelegatedPrefix48(prefix):
-        # We only support /48 delegated prefixes for now
-        if not prefix48Regex.match(prefix):
+    def parseDelegatedprefix59(prefix):
+        # We only support /59 delegated prefixes for now
+        if not prefix59Regex.match(prefix):
             return None
         doubleColonIndex = prefix.find('::')
         prefixBase =  prefix[:doubleColonIndex]
@@ -288,14 +288,24 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
         # append :0 to make it easy to add SLA ID later
         for _ in range(groups, 3):
             prefixBase.append(':0')
+        print(str(prefixBase))
         return prefixBase
-        
+
     @staticmethod
-    def prefix48to64(prefix48, slaId):
-        return prefix48 + ':' + slaId + '::/64'
+    def prefix59to64(prefix59, slaId):
+        # There's probably a better way to do this, but for my homelab needs, it works. 
+        prefixList = prefix59.split(":")
+        prefix1 = prefixList[0]
+        prefix2 = prefixList[1]
+        prefix3 = prefixList[2]
+        prefix4 = prefixList[3]
+        prefix4Hex = int("0x" + prefix4, 16)
+        slaIdHex = int("0x" + slaId, 16)
+        prefix4New = hex(prefix4Hex + slaIdHex).replace("0x","")
+        return prefix1 + ':' + prefix2 + ':' + prefix3 + ':' + prefix4New + '::/64'
 
     # all options are interpreted as RA interfaces
-    def on_agent_option(self, interface, value):         
+    def on_agent_option(self, interface, value):
         if not value:
             with self.lock:
                 self.removePrefixRA(interface, self.raPrefixes[interface])
@@ -312,7 +322,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
                 self.tracer.trace1("RA prefix interface {} does not exist. Ignoring.".format(interface))
                 syslog.syslog("DHCP-PD Agent: RA prefix interface {} does not exist. Ignoring.".format(interface))
                 return
-            
+
             slaId, options = dhcppd.parseRaPrefixOption(value)
             try:
                 slaIdInt = int(slaId, 16)
@@ -321,7 +331,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
             except ValueError:
                 self.tracer.trace1("RA prefix interface {} invalid SLA_ID = {}. Expecting 16bit hex value. Ignoring.".format(interface, value))
                 return
-            
+
             if interface in self.raPrefixes:
                 slaIdOld, optionsOld = self.raPrefixes[interface]
                 if slaId != slaIdOld:
@@ -335,7 +345,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
                 else:
                     # options updated
                     self.tracer.trace5("RA prefix interface {} update options \"{}\" => \"{}\"".format(interface, optionsOld, options))
-            
+
             self.tracer.trace5("RA prefix interface {} add {} {}".format(interface, slaId, options))
             with self.lock:
                 if self.delegatedPrefix is not None:
@@ -356,7 +366,7 @@ class dhcppd(eossdk.AgentHandler, eossdk.TimeoutHandler, eossdk.IntfHandler):
                 self.delegatedPrefix = None
             self.agentMgr.agent_shutdown_complete_is(True)
 
-        
+
 def main():
     syslog.openlog(ident="DHCP-PD-AGENT", logoption=syslog.LOG_PID, facility=syslog.LOG_LOCAL0)
     sdk = eossdk.Sdk()
@@ -367,7 +377,7 @@ def main():
     dhcpInterface = sys.argv[2]
     _ = dhcppd(sdk, dhcpInterface, workingDir)
     sdk.main_loop(sys.argv)
-    
+
 
 if __name__ == "__main__":
     main()
